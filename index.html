@@ -4,10 +4,46 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link rel="stylesheet" href="./src/slidezy.css" />
+        <link rel="stylesheet" href="./assets/style.css" />
         <title>Slidezy</title>
     </head>
     <body>
         <h1>Slidezy</h1>
+
+        <!-- Usage Example -->
+        <div id="my-slider">
+            <div class="slide-1">Slide 1</div>
+            <div class="slide-2">Slide 2</div>
+            <div class="slide-3">Slide 3</div>
+            <div class="slide-4">Slide 4</div>
+            <div class="slide-5">Slide 5</div>
+            <!-- <div class="slide-6">Slide 6</div>
+            <div class="slide-7">Slide 7</div> -->
+            <!-- <div class="slide-8">Slide 8</div> -->
+        </div>
+
+        <!-- <div class="my-controls">
+            <button class="slide-prev">Prev</button>
+            <button class="slide-next">Next</button>
+        </div> -->
+
         <script src="/src/slidezy.js"></script>
+
+        <script>
+            const mySlider = new Slidezy('#my-slider', {
+                items: 3,
+                loop: true,
+                // pagination: false,
+                // controls: false,
+                // controlsText: ['<<<', '>>>'],
+                // prevButton: '.slide-prev',
+                // nextButton: '.slide-next',
+                slideBy: 1, // number || 'page'
+                // slideBy: 'page', // number || 'page'
+                autoplay: true,
+                autoplayDelay: 3000,
+                // autoplayPauseOnHover: false,
+            });
+        </script>
     </body>
 </html>

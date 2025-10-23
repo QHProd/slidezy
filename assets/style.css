@@ -1,0 +1,42 @@
+* {
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+.slidezy-slide {
+    text-align: center;
+    padding: 30px;
+}
+
+.slide-1 {
+    background-color: violet;
+}
+
+.slide-2 {
+    background-color: orange;
+}
+
+.slide-3 {
+    background-color: greenyellow;
+}
+
+.slide-4 {
+    background-color: bisque;
+}
+
+.slide-5 {
+    background-color: skyblue;
+}
+
+.slide-6 {
+    background-color: coral;
+}
+
+.slide-7 {
+    background-color: thistle;
+}
+
+.slide-8 {
+    background-color: plum;
+}
