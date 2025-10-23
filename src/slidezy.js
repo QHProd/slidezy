@@ -13,15 +13,24 @@ function Slidezy(selector, options = {}) {
             pagination: true,
             controls: true,
             controlsText: ['<', '>'],
-            prevButton: null,
-            nextButton: null,
-            slideBy: 1, // number || 'page'
+            prevButton: null, // selector | element
+            nextButton: null, // selector | element
+            slideBy: 1, // number | 'page'
             autoplay: false,
             autoplayDelay: 3000,
             autoplayPauseOnHover: true,
         },
         options
     );
+
+    if (!Number.isFinite(this.opt.items) || this.opt.items < 1) {
+        console.warn(
+            `Slidezy: Invalid "items" value: "${this.opt.items}". ` +
+                `Value must be a finite number greater than or equal to 1. ` +
+                `Using fallback value of 1.`
+        );
+        this.opt.items = 1;
+    }
 
     this.slides = Array.from(this.container.children);
     this._slideCount = this.slides.length;
@@ -34,6 +43,27 @@ function Slidezy(selector, options = {}) {
 
 Slidezy.prototype._init = function () {
     this.container.classList.add('slidezy-wrapper');
+
+    if (this._slideCount <= this.opt.items) {
+        const reason = 'slideCount is less than or equal to items.';
+
+        if (this.opt.loop) {
+            this.opt.loop = false;
+            console.warn(`Slidezy: "loop" option was disabled because ${reason}`);
+        }
+        if (this.opt.autoplay) {
+            this.opt.autoplay = false;
+            console.warn(`Slidezy: "autoplay" option was disabled because ${reason}`);
+        }
+        if (this.opt.controls) {
+            this.opt.controls = false;
+            console.warn(`Slidezy: "controls" option was disabled because ${reason}`);
+        }
+        if (this.opt.pagination) {
+            this.opt.pagination = false;
+            console.warn(`Slidezy: "pagination" option was disabled because ${reason}`);
+        }
+    }
 
     this._createContent();
     this._createTrack();
@@ -103,16 +133,19 @@ Slidezy.prototype._createTrack = function () {
         const cloneTail = this.slides.slice(0, cloneCount).map((slide) => slide.cloneNode(true));
 
         this.slides = cloneHead.concat(this.slides).concat(cloneTail);
-        this._maxIndex = this.slides.length - items; // check lại chỗ này
     }
 
+    const fragment = document.createDocumentFragment();
     this.slides.forEach((slide) => {
         slide.classList.add('slidezy-slide');
         slide.style.flexBasis = `calc(100% / ${items})`;
-        this.track.appendChild(slide);
+        fragment.appendChild(slide);
     });
-
+    this.track.appendChild(fragment);
     this.content.appendChild(this.track);
+
+    // Cập nhật lại _maxIndex dựa trên độ dài cuối cùng của mảng this.slides dù có loop hay không
+    this._maxIndex = this.slides.length - items;
 };
 
 Slidezy.prototype._createPagination = function () {
@@ -128,8 +161,9 @@ Slidezy.prototype._createPagination = function () {
         paginationBtn.classList.add('slidezy-pagination-button');
 
         paginationBtn.addEventListener('click', () => {
-            let step = i * items - this.currentIndex; // no loop
-            if (this.opt.loop) step += this._getCloneCount(); // loop
+            const cloneCount = loop ? this._getCloneCount() : 0;
+            const targetIndex = cloneCount + i * items; // absolute index in slides array
+            const step = targetIndex - this.currentIndex;
             this.moveSlide(step);
         });
 
@@ -137,6 +171,7 @@ Slidezy.prototype._createPagination = function () {
     }
 
     this.container.appendChild(this.paginationWrapper);
+    this.paginationBtns = Array.from(this.paginationWrapper.children);
 };
 
 Slidezy.prototype._updatePagination = function () {
@@ -165,40 +200,79 @@ Slidezy.prototype._updatePagination = function () {
 
     // nếu loop thì đã xử lý realIndex riêng
     // nếu không loop thì mới có trường hợp realIndex = maxIndex
+    // 5 slides, 2 items, 1 slideBy:  [3 4 5] 1 2 3 4 5 [1 2 3]
+    //                          index: 0 1 2  3 4 5 6 7  8 9 10
     if (!loop && realIndex === this._maxIndex) {
         const pageCount = Math.ceil(this._slideCount / items);
         pageIndex = pageCount - 1; // Luôn lấy index của trang cuối cùng
     }
 
-    const paginationBtns = Array.from(this.paginationWrapper.children);
-
-    paginationBtns.forEach((btn, index) => {
+    this.paginationBtns.forEach((btn, index) => {
         btn.classList.toggle('active', pageIndex === index);
     });
 };
 
 Slidezy.prototype._createControls = function () {
-    const { items, prevButton, nextButton, slideBy } = this.opt;
+    const { prevButton, nextButton, loop } = this.opt;
 
-    this.prevBtn = prevButton
-        ? document.querySelector(prevButton)
-        : document.createElement('button');
-    this.nextBtn = nextButton
-        ? document.querySelector(nextButton)
-        : document.createElement('button');
-
-    if (!prevButton) {
+    // --- Xử lý Prev Button ---
+    // 1. Nếu user cung cấp prevButton
+    if (prevButton) {
+        if (prevButton.nodeType === Node.ELEMENT_NODE) {
+            // 1. Nếu là Element, gán trực tiếp
+            this.prevBtn = prevButton;
+        } else if (typeof prevButton === 'string') {
+            // 2. Nếu là string, query
+            this.prevBtn = document.querySelector(prevButton);
+            // Ném lỗi nếu tìm không thấy
+            if (!this.prevBtn)
+                throw new Error(
+                    `Slidezy: Custom "prevButton" selector "${prevButton}" did not match any element in the DOM.`
+                );
+        } else {
+            // 3. Nếu là kiểu dữ liệu khác, ném TypeError
+            throw new TypeError(
+                `Slidezy: Option "prevButton" must be a string (CSS selector) or an Element. Received type: ${typeof prevButton}.`
+            );
+        }
+    } else {
+        // 4. Nếu user không cung cấp, tự tạo
+        this.prevBtn = document.createElement('button');
+        this.prevBtn.type = 'button';
         this.prevBtn.className = 'slidezy-prev';
         this.prevBtn.textContent = this.opt.controlsText[0];
         this.content.appendChild(this.prevBtn);
     }
 
-    if (!nextButton) {
+    // --- Xử lý Next Button ---
+    // 1. Nếu user cung cấp nextButton
+    if (nextButton) {
+        if (nextButton.nodeType === Node.ELEMENT_NODE) {
+            this.nextBtn = nextButton;
+        } else if (typeof nextButton === 'string') {
+            this.nextBtn = document.querySelector(nextButton);
+            if (!this.nextBtn)
+                throw new Error(
+                    `Slidezy: Custom "nextButton" selector "${nextButton}" did not match any element in the DOM.`
+                );
+        } else {
+            throw new TypeError(
+                `Slidezy: Option "nextButton" must be a string (CSS selector) or an Element. Received type: ${typeof nextButton}.`
+            );
+        }
+    } else {
+        // 2. Nếu user không cung cấp, tự tạo
+        this.nextBtn = document.createElement('button');
+        this.nextBtn.type = 'button'; // <-- Góp ý
         this.nextBtn.className = 'slidezy-next';
         this.nextBtn.textContent = this.opt.controlsText[1];
         this.content.appendChild(this.nextBtn);
     }
 
+    if (this.prevBtn === this.nextBtn)
+        throw new Error('prevButton and nextButton must be different elements');
+
+    // --- Gắn Event Listeners ---
     const stepBy = this._getSlideBy();
 
     this.prevBtn.addEventListener('click', () => {
@@ -209,11 +283,22 @@ Slidezy.prototype._createControls = function () {
         this.moveSlide(stepBy);
     });
 
-    this._disableBtn();
+    if (!loop) this._disableBtn();
 };
 
 Slidezy.prototype._getSlideBy = function () {
-    return this.opt.slideBy === 'page' ? this.opt.items : this.opt.slideBy;
+    const num = this.opt.slideBy === 'page' ? this.opt.items : Number(this.opt.slideBy);
+
+    if (!Number.isFinite(num) || num < 1) {
+        console.warn(
+            `Slidezy: Invalid "slideBy" value: "${this.opt.slideBy}". ` +
+                `Value must be 'page' or a finite number greater than or equal to 1. ` +
+                `Using fallback value of 1.`
+        );
+        return 1;
+    }
+
+    return num;
 };
 
 Slidezy.prototype.moveSlide = function (step) {
@@ -225,8 +310,12 @@ Slidezy.prototype.moveSlide = function (step) {
     // Khi click thì sẽ gán lại: currentIndex = currentIndex + step. Tuy nhiên phải giới hạn:
     //  - Math.max(this.currentIndex + step, 0) → lấy số lớn nhất. Nếu index < 0 thì sẽ lấy 0 vì array index không thể là số âm
     //  - Math.min(..., maxIndex) → lấy số nhỏ nhất. Nếu index lớn hơn 'maxIndex' thì sẽ lấy 'maxIndex'
-    //      - 'maxIndex' là tổng số slide trừ đi số slide đang hiển thị → để không bị trống slide khi chạy đến cuối cùng
+    //      - 'maxIndex' trong non-loop là slide length trừ đi số slide đang hiển thị → để không bị trống slide khi chạy đến cuối cùng
     //        VD: có 9 slide, hiển thị 3 slide thì index lớn nhất của currentIndex là 6 (6, 7, 8)
+    //      - 'maxIndex' trong loop là tổng length (slide + clone) trừ đi số slide đang hiển thị → để không bị trống slide khi chạy đến cuối cùng
+    //        VD: có 5 slides, hiển thị 2 slides, 1 slideBy: [3 4 5] 1 2 3 4 5 [1 2 3]
+    //                                                index:  0 1 2  3 4 5 6 7  8 9 10
+    //                                   → index lớn nhất của currentIndex là 9 (2, 3)
 
     setTimeout(() => {
         if (this.opt.loop) {
@@ -246,10 +335,14 @@ Slidezy.prototype._handleLoop = function () {
 
     // VD: có 5 slides, hiển thị 1 slides, 2 slideBy: [3 4 5] 1 2 3 4 5 [1 2 3]
     //                                         index:  0 1 2  3 4 5 6 7  8 9 10
-    const cloneCount = this._getCloneCount();
 
-    if (this.currentIndex > this._maxIndex - cloneCount) {
-        // check xem có cần sửa điều kiện if ở đây không
+    // VD: có 5 slides, item 1, slideBy 4:   [1 2 3 4 5] 1 2 3 4 5 [1  2  3  4  5]
+    //                                index:  0 1 2 3 4  5 6 7 8 9  10 11 12 13 14
+    const cloneCount = this._getCloneCount();
+    const tailBoundary = this._maxIndex - cloneCount; // nếu index lớn hơn tailBoundary → ở tail clones
+    // nếu index < headBoundary → ở head clones
+
+    if (this.currentIndex > tailBoundary) {
         this.currentIndex -= this._slideCount;
         this._updatePosition(true);
     } else if (this.currentIndex < cloneCount) {
@@ -277,6 +370,7 @@ Slidezy.prototype._updatePosition = function (instant = false) {
 };
 
 Slidezy.prototype._disableBtn = function () {
+    if (!this.prevBtn || !this.nextBtn) return;
     this.prevBtn.classList.toggle('disable', this.currentIndex <= 0);
     this.nextBtn.classList.toggle('disable', this.currentIndex >= this._maxIndex);
 };
