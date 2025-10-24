@@ -19,6 +19,13 @@ function Slidezy(selector, options = {}) {
             autoplay: false,
             autoplayDelay: 3000,
             autoplayPauseOnHover: true,
+            // Swipe: Gmn & Cld đều có
+            swipe: true,
+            swipeThreshold: 50, // (đơn vị: pixel) Quãng đường vuốt tối thiểu để kích hoạt
+            // Swipe: Cld có mà Gmn không có
+            swipeVelocityThreshold: 1.4, // Tốc độ tối thiểu (px/ms) để trigger swipe nhanh
+            touchRatio: 1, // Tỷ lệ di chuyển (1 = theo sát ngón tay, 0.5 = chậm hơn)
+            resistanceRatio: 0.2, // Tỷ lệ kháng lực ở biên (non-loop mode)
         },
         options
     );
@@ -75,7 +82,398 @@ Slidezy.prototype._init = function () {
         this._startAutoplay();
         this.opt.autoplayPauseOnHover && this._setupAutoplayHover();
     }
+
+    // Xử lý swipe trên mobile:
+    // ===== Gmn =====
+    // this._isSwiping = false;
+    // this._startX = 0;
+    // this._startY = 0;
+    // this._distX = 0;
+    // this._distY = 0;
+
+    // ===== Cld =====
+    this._swipeState = {
+        isTouching: false, // Đang chạm vào screen
+        isDragging: false, // Đang kéo (đã di chuyển đủ xa)
+        isVerticalScroll: false, // Đang cuộn dọc chứ không phải swipe slide
+        startX: 0, // Vị trí X ban đầu khi chạm
+        startY: 0, // Vị trí Y ban đầu khi chạm
+        currentX: 0, // Vị trí X hiện tại
+        startTime: 0, // Timestamp lúc bắt đầu touch
+        currentTranslate: 0, // Giá trị translate hiện tại (%)
+        prevTranslate: 0, // Giá trị translate trước đó (để snap back)
+        rafId: null,
+    };
+    this.opt.swipe && this._setupSwipe();
 };
+
+/* Handle swipe Gmn: START */
+// // Gắn các trình lắng nghe sự kiện touch vào slider
+// Slidezy.prototype._setupSwipe = function () {
+//     // passive: false là quan trọng để chúng ta có thể gọi e.preventDefault() trong _onTouchMove để chặn cuộn trang theo chiều ngang.
+//     this.content.addEventListener('touchstart', (e) => this._onTouchStart(e), { passive: false });
+//     this.content.addEventListener('touchmove', (e) => this._onTouchMove(e), { passive: false });
+//     this.content.addEventListener('touchend', (e) => this._onTouchEnd(e));
+// };
+
+// // Xử lý khi bắt đầu chạm (touchstart)
+// Slidezy.prototype._onTouchStart = function (e) {
+//     // Nếu slider đang di chuyển (transition) thì không cho vuốt
+//     if (this._isMoving) {
+//         return;
+//     }
+
+//     // Ghi lại vị trí bắt đầu
+//     this._startX = e.touches[0].clientX;
+//     this._startY = e.touches[0].clientY;
+
+//     // Reset quãng đường
+//     this._distX = 0;
+//     this._distY = 0;
+
+//     // Stop autoplay while touching
+//     if (this.opt.autoplay) {
+//         this._stopAutoplay();
+//     }
+
+//     // Đánh dấu là bắt đầu vuốt
+//     this._isSwiping = true;
+// };
+
+// // Xử lý khi di chuyển ngón tay (touchmove)
+// Slidezy.prototype._onTouchMove = function (e) {
+//     if (!this._isSwiping) {
+//         return;
+//     }
+
+//     // Tính toán quãng đường di chuyển
+//     this._distX = e.touches[0].clientX - this._startX;
+//     this._distY = e.touches[0].clientY - this._startY;
+
+//     // -- PHẦN QUAN TRỌNG NHẤT --
+//     // Phân biệt vuốt ngang (swipe) và vuốt dọc (cuộn trang)
+//     // Chỉ khi nào vuốt ngang > vuốt dọc, chúng ta mới can thiệp
+//     if (Math.abs(this._distX) > Math.abs(this._distY)) {
+//         // Nếu là vuốt ngang, chặn hành vi mặc định của trình duyệt
+//         // (tránh cuộn trang theo chiều ngang)
+//         e.preventDefault();
+//     } else {
+//         // Nếu là vuốt dọc, đánh dấu là "không vuốt" nữa
+//         // để trả lại quyền cuộn trang cho trình duyệt
+//         this._isSwiping = false;
+//     }
+// };
+
+// // Xử lý khi nhấc ngón tay (touchend)
+// Slidezy.prototype._onTouchEnd = function (e) {
+//     if (!this._isSwiping) {
+//         return;
+//     }
+
+//     // Reset cờ
+//     this._isSwiping = false;
+
+//     // Lấy ngưỡng (threshold) và bước nhảy (step)
+//     const threshold = this.opt.swipeThreshold;
+//     const step = this._getSlideBy();
+
+//     // Kiểm tra xem quãng đường vuốt (chỉ tính trục X) có đủ lớn không
+//     if (Math.abs(this._distX) > threshold) {
+//         if (this._distX > 0) {
+//             // Vuốt sang phải (clientX tăng) -> Prev slide
+//             this.moveSlide(-step);
+//         } else {
+//             // Vuốt sang trái (clientX giảm) -> Next slide
+//             this.moveSlide(step);
+//         }
+//     }
+//     // Nếu không đủ threshold, không làm gì cả (tính là 1 cú "tap")
+
+//     // Resume autoplay
+//     if (this.opt.autoplay) {
+//         this._startAutoplay();
+//     }
+// };
+/* Handle swipe Gmn: END */
+
+/* Handle swipe Cld: START */
+Slidezy.prototype._setupSwipe = function () {
+    // Bind các method với this context để có thể remove listeners sau này
+    this._boundTouchStart = this._onTouchStart.bind(this);
+    this._boundTouchMove = this._onTouchMove.bind(this);
+    this._boundTouchEnd = this._onTouchEnd.bind(this);
+
+    // ===== ĐĂNG KÝ TOUCH EVENTS =====
+    // touchstart: Khi bắt đầu chạm vào screen
+    // { passive: false } cho phép preventDefault() để ngăn scroll
+    this.content.addEventListener('touchstart', this._boundTouchStart, { passive: false });
+
+    // touchmove: Khi di chuyển ngón tay trên screen
+    this.content.addEventListener('touchmove', this._boundTouchMove, { passive: false });
+
+    // touchend: Khi nhả ngón tay ra khỏi screen
+    this.content.addEventListener('touchend', this._boundTouchEnd);
+
+    // touchcancel: Khi touch bị hủy (vd: phone call, notification)
+    this.content.addEventListener('touchcancel', this._boundTouchEnd);
+
+    // ===== NGĂN CONTEXT MENU KHI LONG PRESS =====
+    this.content.addEventListener('contextmenu', (e) => {
+        if (this._swipeState.isDragging) {
+            e.preventDefault();
+        }
+    });
+
+    // ===== NGĂN DRAG MẶC ĐỊNH CỦA IMAGES =====
+    // Tìm tất cả img trong track và disable drag mặc định của browser
+    const images = this.track.querySelectorAll('img');
+    images.forEach((img) => {
+        img.addEventListener('dragstart', (e) => e.preventDefault());
+    });
+
+    // ===== THÊM STYLES CHO TRACK =====
+    // user-select: none → ngăn select text khi swipe
+    this.track.style.userSelect = 'none';
+    this.track.style.webkitUserSelect = 'none';
+};
+
+/**
+ * Handler khi bắt đầu touch
+ */
+Slidezy.prototype._onTouchStart = function (e) {
+    // Nếu đang trong quá trình animation → không xử lý
+    if (this._isMoving) return;
+
+    if (e.touches && e.touches.length > 1) return; // ignore multi-touch
+
+    // Lấy thông tin touch đầu tiên (chỉ support single touch)
+    const touch = e.touches[0];
+
+    // Xử lý swipe start với tọa độ
+    const state = this._swipeState;
+
+    // ===== LƯU TRẠNG THÁI BAN ĐẦU =====
+    state.isTouching = true; // Đánh dấu đang touch
+    state.isDragging = false; // Chưa drag (chờ vuốt ngang đủ xa)
+    state.startX = touch.clientX; // Lưu vị trí X ban đầu
+    state.startY = touch.clientY; // Lưu vị trí Y ban đầu
+    state.currentX = touch.clientX; // Current X = start X
+    state.startTime = Date.now(); // Lưu timestamp để tính velocity sau này
+    state.isVerticalScroll = false; // <-- Reset cờ
+
+    // ===== LƯU VỊ TRÍ TRANSLATE HIỆN TẠI =====
+    // Tính translate hiện tại dựa trên currentIndex
+    // Công thức: -(currentIndex * (100 / items))
+    // VD: currentIndex = 2, items = 3 → translate = -66.67%
+    state.prevTranslate = -(this.currentIndex * (100 / this.opt.items));
+    state.currentTranslate = state.prevTranslate;
+
+    // ===== TẠM DỪNG AUTOPLAY KHI USER ĐANG TOUCH =====
+    state.wasAutoplay = !!this.autoplayId;
+    if (state.wasAutoplay) this._stopAutoplay();
+};
+
+/**
+ * Handler khi di chuyển ngón tay trên screen
+ */
+Slidezy.prototype._onTouchMove = function (e) {
+    // Nếu không đang touch → không xử lý
+    if (!this._swipeState.isTouching) return;
+
+    // Nếu đã quyết định đây là cuộn dọc, không làm gì nữa
+    if (this._swipeState.isVerticalScroll) return;
+
+    // Lấy thông tin touch
+    const touch = e.touches[0];
+
+    // Xử lý swipe move
+    const state = this._swipeState;
+
+    // Update current position
+    state.currentX = touch.clientX;
+
+    // ===== TÍNH KHOẢNG CÁCH DI CHUYỂN =====
+    const deltaX = touch.clientX - state.startX; // Khoảng cách ngang (dương = vuốt từ trái sang phải)
+    const deltaY = touch.clientY - state.startY; // Khoảng cách dọc (dương = vuốt từ trên xuống dưới)
+
+    // ===== DETECT HƯỚNG SWIPE: NGANG HAY DỌC? =====
+    // Chỉ xử lý khi chưa bắt đầu drag
+    if (!state.isDragging) {
+        // Nếu swipe dọc nhiều hơn ngang → user đang scroll dọc
+        // → Không xử lý swipe ngang, để browser handle scroll
+        if (Math.abs(deltaY) > Math.abs(deltaX)) {
+            state.isVerticalScroll = true; // Khóa quyết định
+
+            return; // Exit, không làm gì cả
+        }
+
+        // Nếu đi ngang đủ xa (> 5px) → preventDefault để ngăn scroll dọc
+        if (Math.abs(deltaX) > 5) {
+            e.preventDefault();
+
+            // Đánh dấu đã bắt đầu drag
+            state.isDragging = true;
+
+            // ===== TẮT TRANSITION ĐỂ TRACK THEO NGÓN TAY MƯỢT =====
+            // Nếu có transition, track sẽ di chuyển từ từ thay vì instant
+            this.track.style.transition = 'none';
+
+            // ===== DISABLE POINTER EVENTS TRÊN SLIDES =====
+            // Ngăn click/tap vào elements bên trong slides khi đang drag
+            this.slides.forEach((slide) => {
+                slide.style.pointerEvents = 'none';
+            });
+        } else {
+            // Nếu chưa đủ 5px, không làm gì cả, chờ sự kiện move tiếp theo
+            return;
+        }
+    } else {
+        // Đã drag rồi → luôn preventDefault để ngăn scroll
+        e.preventDefault();
+    }
+
+    // ===== TÍNH TRANSLATE MỚI =====
+
+    // Lấy chiều rộng container
+    const containerWidth = this.content.clientWidth;
+
+    // Tính % di chuyển dựa trên deltaX
+    // Công thức: (deltaX / containerWidth) * 100
+    // VD: deltaX = 100px, width = 1000px → 10%
+    // Nhân với touchRatio để điều chỉnh độ nhạy
+    const movePercentage = (deltaX / containerWidth) * 100 * this.opt.touchRatio;
+
+    // Translate mới = translate cũ + % di chuyển
+    state.currentTranslate = state.prevTranslate + movePercentage;
+
+    // ===== ÁP DỤNG RESISTANCE (KHÁNG LỰC) Ở BIÊN =====
+    // Chỉ áp dụng cho non-loop mode
+    if (!this.opt.loop) {
+        // Tính giới hạn translate
+        const minTranslate = -(this._maxIndex * (100 / this.opt.items)); // Biên phải
+        const maxTranslate = 0; // Biên trái
+
+        // ===== NẾU VƯỢT QUÁ BIÊN TRÁI (translate > 0) =====
+        if (state.currentTranslate > maxTranslate) {
+            // Áp dụng resistance: gán lại currentTranslate để chỉ di chuyển 20% khoảng cách vượt
+            // Công thức: maxTranslate + (phần vượt * resistanceRatio)
+            state.currentTranslate =
+                maxTranslate + (state.currentTranslate - maxTranslate) * this.opt.resistanceRatio;
+        }
+        // ===== NẾU VƯỢT QUÁ BIÊN PHẢI (translate < minTranslate) =====
+        else if (state.currentTranslate < minTranslate) {
+            // Tương tự, chỉ di chuyển 20%
+            state.currentTranslate =
+                minTranslate + (state.currentTranslate - minTranslate) * this.opt.resistanceRatio;
+        }
+    }
+
+    // ===== CẬP NHẬT VỊ TRÍ TRACK =====
+    // Apply translate ngay lập tức (theo ngón tay)
+    if (this._swipeState.rafId) cancelAnimationFrame(this._swipeState.rafId);
+
+    this._swipeState.rafId = requestAnimationFrame(() => {
+        this.track.style.transform = `translateX(${state.currentTranslate}%)`;
+    });
+};
+
+/**
+ * Handler khi kết thúc touch (nhả ngón tay)
+ */
+Slidezy.prototype._onTouchEnd = function (e) {
+    // Nếu không đang touch → không xử lý
+    if (!this._swipeState.isTouching) return;
+
+    //  Xử lý kết thúc swipe: Quyết định có slide hay snap back
+    const state = this._swipeState;
+
+    // ===== RE-ENABLE POINTER EVENTS =====
+    this.slides.forEach((slide) => {
+        slide.style.pointerEvents = '';
+    });
+
+    // ===== NẾU KHÔNG DRAG (CHỈ TAP) → KHÔNG LÀM GÌ =====
+    // (chưa vuốt ngang đủ xa)
+    if (!state.isDragging) {
+        state.isTouching = false;
+
+        // Restore autoplay nếu user chỉ tap hoặc scroll dọc
+        // Cần dùng setTimeout tối thiểu 3ms để tránh lỗi trên chrome:
+        //      Lỗi: Nếu user chỉ tap thì autoplay bị dừng và không khôi phục được. Đây là lỗi gì?
+        setTimeout(() => {
+            if (state.wasAutoplay) this._startAutoplay();
+        }, 10);
+
+        return;
+    }
+
+    // ===== TÍNH TOÁN KHOẢNG CÁCH VÀ TỐC ĐỘ =====
+
+    // Khoảng cách di chuyển (px)
+    const deltaX = state.currentX - state.startX;
+
+    // Thời gian di chuyển (ms)
+    const deltaTime = Math.max(1, Date.now() - state.startTime); // Đảm bảo tối thiểu là 1ms, tránh lỗi chia cho 0
+
+    // Tốc độ (px/ms)
+    const velocity = Math.abs(deltaX) / deltaTime;
+
+    // ===== QUYẾT ĐỊNH SỐ SLIDE CẦN DI CHUYỂN =====
+    let slidesToMove = 0;
+
+    const { swipeThreshold, swipeVelocityThreshold } = this.opt;
+    const containerWidth = this.content.clientWidth;
+
+    // ===== CASE 1: SWIPE NHANH (HIGH VELOCITY) VÀ KHOẢNG CÁCH NGẮN =====
+    // Nếu swipe nhanh → di chuyển 1 slide dù khoảng cách ngắn
+    if (velocity > swipeVelocityThreshold && Math.abs(deltaX) < containerWidth * 0.75) {
+        // deltaX > 0: swipe left to right → prev (-1)
+        // deltaX < 0: swipe right to left → next (+1)
+        slidesToMove = deltaX > 0 ? -1 : 1;
+    }
+    // ===== CASE 2: SWIPE NHANH VÀ KHOẢNG CÁCH RẤT DÀI (> 3/4 slider container) =====
+    // Nếu swipe nhanh và khoảng cách dài hơn 3/4 trang → user muốn di chuyển 1 page
+    else if (velocity > swipeVelocityThreshold && Math.abs(deltaX) > containerWidth * 0.75) {
+        slidesToMove = deltaX > 0 ? -this.opt.items : this.opt.items;
+    }
+    // ===== CASE 3: SWIPE CHẬM NHƯNG ĐỦ XA =====
+    else if (Math.abs(deltaX) > swipeThreshold) {
+        // Tính số slide dựa trên tỷ lệ di chuyển
+        const slideWidth = containerWidth / this.opt.items;
+
+        // Làm tròn để lấy số slide nguyên
+        // VD: di chuyển 1.7 slide → round = 2 slides
+        // Lưu ý: cần đảo dấu vì nếu deltaX > 0 (prev) thì slideToMove phải là số âm
+        slidesToMove = -Math.round(deltaX / slideWidth);
+    }
+    // ===== CASE 4: SWIPE QUÁ NGẮN → SNAP BACK =====
+    // slidesToMove = 0 → không di chuyển
+
+    // ===== THỰC HIỆN DI CHUYỂN HOẶC SNAP BACK =====
+    if (slidesToMove !== 0) {
+        // Có di chuyển → gọi moveSlide()
+        // Lưu ý: slidesToMove âm = prev, dương = next
+        // Và: moveSlide() nhận: âm = prev, dương = next
+        // → Không cần đảo dấu, chỉ cần gọi hàm hàm moveSlide() và truyền slidesToMove vào là được
+        this.moveSlide(slidesToMove);
+    } else {
+        // Không di chuyển → snap back về vị trí cũ
+        // Bật lại transition để có animation
+        this.track.style.transition = `transform ${this.opt.speed}ms ease`;
+
+        // Update về vị trí currentIndex hiện tại
+        this._updatePosition();
+    }
+
+    // ===== RESET STATE =====
+    state.isTouching = false;
+    state.isDragging = false;
+    if (this._swipeState.rafId) cancelAnimationFrame(this._swipeState.rafId);
+
+    // ===== RESUME AUTOPLAY SAU KHI END TOUCH =====
+    if (state.wasAutoplay) this._startAutoplay();
+};
+/* Handle swipe Cld: END */
 
 Slidezy.prototype._startAutoplay = function () {
     if (this.autoplayId) return;
